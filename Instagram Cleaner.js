@@ -4,7 +4,6 @@
 // @description  Tool to clean up Instagram activity (comments and likes).
 // @author       Supercharged Rhino Unit
 // @match        https://www.instagram.com/accounts/activity/*
-// @grant        none
 // ==/UserScript==
 
 (function () {
