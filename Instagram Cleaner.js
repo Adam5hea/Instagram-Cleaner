@@ -174,23 +174,28 @@
         const delayMs = parseInt(document.querySelector('#speedInput').value, 10);
 
         // Check select button element in config again (in case page changed)
-        const selectBtn = Array.from(document.querySelectorAll('div[data-bloks-name="bk.components.Flexbox"][role="button"]'))
-            .find(el => el.textContent.trim() === "Select");
+        let checkboxes = Array.from(document.querySelectorAll(selectors.messageCheckboxes)).filter(el =>
+            el.offsetParent !== null &&
+            !el.getAttribute('aria-checked')?.includes('true')
+        );
 
-        if (!selectBtn) {
-            alert('Select button not found! Please update selector.');
-            return;
-        }
-        selectBtn.click();
-        await sleep(600); // Wait for checkboxes to appear
+        if (checkboxes.length === 0) {
+            // If no checkboxes found, try clicking the "Select" button again
+            const selectBtn = Array.from(document.querySelectorAll('div[data-bloks-name="bk.components.Flexbox"][role="button"]'))
+                .find(el => el.textContent.trim() === "Select");
 
-        // Collect checkboxes
-        const checkboxes = Array.from(document.querySelectorAll(selectors.messageCheckboxes))
-            .filter(chk => !chk.checked); // Only those not already checked
+            if (selectBtn) {
+                selectBtn.click();
+                await sleep(600);
 
-        if (!checkboxes.length) {
-            alert('No message checkboxes found! Please update selector.');
-            return;
+                checkboxes = Array.from(document.querySelectorAll(selectors.messageCheckboxes)).filter(el =>
+                    el.offsetParent !== null &&
+                    !el.getAttribute('aria-checked')?.includes('true')
+                );
+            } else {
+                alert('No checkboxes visible and Select button not found!');
+                return;
+            }
         }
 
         const toDelete = amountVal === -1 ? checkboxes.length : Math.min(amountVal, checkboxes.length);
@@ -205,13 +210,26 @@
             await sleep(delayMs);
         }
 
-        // Click Delete and Confirm buttons if available
-        const delBtn = document.querySelector(selectors.deleteButton);
-        if (delBtn) {
+        // Click the visible Delete button
+        const deleteButtons = Array.from(document.querySelectorAll('[role="button"][aria-label="Delete"]'))
+            .filter(btn => getComputedStyle(btn).pointerEvents === 'auto');
+
+        if (deleteButtons.length > 0) {
+            const delBtn = deleteButtons[0]; // Click the first delete button
             delBtn.click();
-            await sleep(500);
-            const confirmBtn = document.querySelector(selectors.confirmDeleteButton);
-            if (confirmBtn) confirmBtn.click();
+            await new Promise(r => setTimeout(r, 500)); // Wait for modal
+
+            // Now find the confirm delete button
+            const candidates = Array.from(document.querySelectorAll('button, div, span'))
+                .filter(el => el.innerText && el.innerText.trim() === 'Delete' && getComputedStyle(el).pointerEvents !== 'none' && (el.offsetWidth > 0 || el.offsetHeight > 0));
+
+            const confirmBtn = candidates.find(el => el.tagName === 'BUTTON') || candidates[0];
+
+            if (confirmBtn) {
+                confirmBtn.click();
+            } else {
+                alert('Confirm Delete button not found.');
+            }
         } else {
             alert('Delete button not found. Please delete manually.');
         }
