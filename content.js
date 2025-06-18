@@ -121,7 +121,7 @@
         <input type="number" id="amountInput" value="-1" min="-1" max="1000" step="1">
 
         <label for="speedInput">Delete speed (ms delay):</label>
-        <input type="number" id="speedInput" value="75" min="50" max="5000" step="50">
+        <input type="number" id="speedInput" value="50" min="50" max="5000" step="50">
 
         <button id="startDeleteBtn" title="Start deleting selected messages" style="background:#05ff00;">
             <svg viewBox="0 0 24 24" fill="white" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>
@@ -334,7 +334,7 @@
             // After clicking Unlike/Delete confirmation:
             await sleep(1000); // Wait a bit for error popup to appear if any
 
-            async function clickOkButtonIfPresent(timeout = 5000) {
+            async function clickOkButtonIfPresent(timeout = 10000) {
                 const pollInterval = 300;
                 const maxAttempts = Math.ceil(timeout / pollInterval);
                 let attempts = 0;
