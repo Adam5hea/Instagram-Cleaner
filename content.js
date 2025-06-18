@@ -121,11 +121,16 @@
         <input type="number" id="amountInput" value="-1" min="-1" max="1000" step="1">
 
         <label for="speedInput">Delete speed (ms delay):</label>
-        <input type="number" id="speedInput" value="500" min="50" max="5000" step="50">
+        <input type="number" id="speedInput" value="75" min="50" max="5000" step="50">
 
-        <button id="startDeleteBtn" title="Start deleting selected messages">
-            <svg viewBox="0 0 24 24" fill="white" width="18" height="18"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-4.5l-1-1z"/></svg>
+        <button id="startDeleteBtn" title="Start deleting selected messages" style="background:#05ff00;">
+            <svg viewBox="0 0 24 24" fill="white" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>
             Start Delete
+        </button>
+
+        <button id="stopDeleteBtn" title="Stop deleting" style="background:#ff0000;">
+        <svg viewBox="0 0 24 24" fill="white" width="18" height="18"><path d="M6 6h12v12H6z"/></svg>
+         Stop Delete
         </button>
     `;
 
@@ -136,17 +141,28 @@
 
     // Navigation buttons
     ui.querySelector('#goCommentsBtn').onclick = () => {
-        const btn = document.querySelector(selectors.commentsSectionBtn);
-        if (btn) btn.click();
-        else alert('Comments section button not found! Update selector.');
+        window.location.href = 'https://www.instagram.com/your_activity/interactions/comments/';
     };
 
     ui.querySelector('#goLikesBtn').onclick = () => {
-        const btn = document.querySelector(selectors.likesSectionBtn);
-        if (btn) btn.click();
-        else alert('Likes section button not found! Update selector.');
+        window.location.href = 'https://www.instagram.com/your_activity/interactions/likes/';
     };
 
+    async function getSelectAllButton(timeout = 5000) {
+    const pollInterval = 300;
+    const maxAttempts = Math.ceil(timeout / pollInterval);
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+        const btn = Array.from(document.querySelectorAll('div[data-bloks-name="bk.components.Flexbox"][role="button"]'))
+            .find(el => el.textContent.trim() === "Select");
+        if (btn) return btn;
+
+        await new Promise(r => setTimeout(r, pollInterval));
+        attempts++;
+    }
+    return null;
+}
     function forceClick(el) {
         // If it's unclickable, we simulate a real user event
         el.dispatchEvent(new MouseEvent('click', {
@@ -157,19 +173,26 @@
     }
 
     async function handleErrorPopup() {
-        const okBtn = Array.from(document.querySelectorAll('button, div'))
-            .find(el =>
-                el.innerText.trim() === 'OK' &&
-                getComputedStyle(el).pointerEvents === 'auto'
-            );
+        // Find all buttons with child div that has text 'OK' (case insensitive)
+        const okButtons = Array.from(document.querySelectorAll('button'))
+            .filter(btn => {
+                const div = btn.querySelector('div');
+                if (!div) return false;
+                const text = div.innerText?.trim().toLowerCase();
+                return text === 'ok';
+            });
 
-        if (okBtn) {
-            console.log("⚠️ Error detected! Clicking OK...");
-            okBtn.click();
-            await sleep(1500);
-            return true;
+        if (okButtons.length > 0) {
+            console.log(`⚠️ Error popup detected! Clicking OK (${okButtons.length} candidate(s))...`);
+            for (const okBtn of okButtons) {
+                if (getComputedStyle(okBtn).pointerEvents !== 'none' &&
+                    (okBtn.offsetWidth > 0 || okBtn.offsetHeight > 0)) {
+                    forceClick(okBtn);
+                    await sleep(1500);
+                    return true;
+                }
+            }
         }
-
         return false;
     }
 
@@ -197,15 +220,6 @@
 
             const amountVal = parseInt(document.querySelector('#amountInput').value, 10);
             const delayMs = parseInt(document.querySelector('#speedInput').value, 10);
-
-            // Check for error and OK button
-            const errorHandled = await handleErrorPopup();
-            if (errorHandled) {
-                console.log("🔄 Retrying after dismissing error...");
-                await sleep(2000);
-                retry = true;
-                continue; // Restart loop
-            }
 
             // Reload checkboxes
             let checkboxes = Array.from(document.querySelectorAll(selectors.messageCheckboxes)).filter(el =>
@@ -294,27 +308,54 @@
                 actionButton.click();
                 await sleep(500);
 
-                // Confirm Delete button (similar logic applies)
-                const confirmCandidates = Array.from(document.querySelectorAll('button, div, span'))
-                    .filter(el => {
-                        if (!el.innerText) return false;
-                        const text = el.innerText.trim();
-                        const pointerEvents = getComputedStyle(el).pointerEvents;
-                        const visible = (el.offsetWidth > 0 || el.offsetHeight > 0); manifest
-                        return (text === 'Delete' || text === 'Unlike') && pointerEvents !== 'none' && visible;
+                // After clicking 'Unlike', wait and try to find the confirmation button
+                await sleep(500);
+
+                // Find button that is clickable and has text "Unlike" (popup confirmation)
+                const confirmBtn = Array.from(document.querySelectorAll('button'))
+                    .find(btn => {
+                        const text = btn.innerText?.trim();
+                        return (text === 'Unlike' || text === 'Delete') &&
+                            getComputedStyle(btn).pointerEvents !== 'none' &&
+                            (btn.offsetWidth > 0 || btn.offsetHeight > 0);
                     });
 
-                const confirmBtn = confirmCandidates.find(el => el.tagName === 'BUTTON') || confirmCandidates[0];
-
                 if (confirmBtn) {
+                    console.log(`✅ Clicking confirmation button: ${confirmBtn.innerText.trim()}`);
                     confirmBtn.click();
                     await sleep(2000);
                     retry = true; // Continue loop for next batch
                 } else {
-                    alert('Confirm Delete button not found.');
+                    alert('⚠️ Confirm Unlike or Delete button not found.');
                 }
-            } else {
-                alert('Delete or Unlike button not found. Please delete manually.');
+            }
+            await clickOkButtonIfPresent();
+
+            // After clicking Unlike/Delete confirmation:
+            await sleep(1000); // Wait a bit for error popup to appear if any
+
+            async function clickOkButtonIfPresent(timeout = 5000) {
+                const pollInterval = 300;
+                const maxAttempts = Math.ceil(timeout / pollInterval);
+                let attempts = 0;
+
+                while (attempts < maxAttempts) {
+                    // Query the OK button by class and text content
+                    const okButton = Array.from(document.querySelectorAll('button._a9--._ap36._a9_1'))
+                        .find(btn => btn.textContent.trim() === "OK");
+
+                    if (okButton) {
+                        okButton.click();
+                        console.log("Clicked OK button");
+                        return true;
+                    }
+
+                    await new Promise(r => setTimeout(r, pollInterval));
+                    attempts++;
+                }
+
+                console.warn("OK button not found after waiting.");
+                return false;
             }
         }
     };
