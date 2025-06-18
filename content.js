@@ -1,7 +1,6 @@
 ﻿(function () {
     'use strict';
 
-    let stopRequested = false;
 
     // ----- CONFIG: Update these selectors! -----
     const selectors = {
@@ -96,6 +95,26 @@
         #instaCleanerUI .closeBtn:hover {
             color: #fff;
         }
+
+    function createStatusBox() {
+    let box = document.createElement('div');
+    box.id = 'deleteStatusBox';
+    box.style.position = 'fixed';
+    box.style.bottom = '20px';
+    box.style.right = '20px';
+    box.style.padding = '10px 15px';
+    box.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    box.style.color = '#fff';
+    box.style.fontSize = '14px';
+    box.style.borderRadius = '8px';
+    box.style.zIndex = 9999;
+    box.style.fontFamily = 'Arial, sans-serif';
+    box.style.minWidth = '180px';
+    box.style.textAlign = 'center';
+    box.innerText = 'Checked / Removed: 0';
+    document.body.appendChild(box);
+    return box;
+}
     `;
     document.head.appendChild(style);
 
@@ -133,6 +152,8 @@
          Stop Delete
         </button>
     `;
+
+
 
     document.body.appendChild(ui);
 
@@ -211,11 +232,31 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    // Stop button functionality
+    ui.querySelector('#stopDeleteBtn').onclick = () => {
+        stopRequested = true;
+        console.log('🛑 Stop requested!');
+    };
+
     // Main delete logic
+    let stopRequested = false;
+
+    ui.querySelector('#stopDeleteBtn').onclick = () => {
+        stopRequested = true;
+        console.log('🛑 Stop requested!');
+    };
+
     ui.querySelector('#startDeleteBtn').onclick = async () => {
+        stopRequested = false;  // reset when starting
+
         let retry = true;
 
         while (retry) {
+            if (stopRequested) {
+                console.log('🛑 Stopped before starting batch.');
+                break;
+            }
+
             retry = false;
 
             const amountVal = parseInt(document.querySelector('#amountInput').value, 10);
@@ -227,7 +268,8 @@
                 !el.getAttribute('aria-checked')?.includes('true')
             );
 
-            // Wait for either checkboxes or Select button if not found yet
+            if (stopRequested) break;
+
             if (checkboxes.length === 0) {
                 console.log("⏳ Waiting for Select button or checkboxes to load...");
 
@@ -236,16 +278,19 @@
                         .find(el => el.textContent.trim() === "Select")
                 );
 
+                if (stopRequested) break;
+
                 if (selectBtn) {
                     selectBtn.click();
                     await sleep(600);
+                    if (stopRequested) break;
+
                     checkboxes = Array.from(document.querySelectorAll(selectors.messageCheckboxes)).filter(el =>
                         el.offsetParent !== null &&
                         !el.getAttribute('aria-checked')?.includes('true')
                     );
                 }
 
-                // Final fallback: wait for checkboxes
                 if (!selectBtn || checkboxes.length === 0) {
                     checkboxes = await waitForElement(() => {
                         const found = Array.from(document.querySelectorAll(selectors.messageCheckboxes)).filter(el =>
@@ -257,37 +302,42 @@
 
                     if (!checkboxes) {
                         alert('⚠️ Timed out waiting for checkboxes. Try again after the page loads.');
-                        return;
+                        break;
                     }
                 }
             }
 
+            if (stopRequested) break;
+
             const toDelete = amountVal === -1 ? checkboxes.length : Math.min(amountVal, checkboxes.length);
             if (toDelete <= 0) {
                 alert('Invalid amount to delete!');
-                return;
+                break;
             }
 
-            // Select checkboxes
+            // Select checkboxes with stop check
             for (let i = 0; i < toDelete; i++) {
+                if (stopRequested) {
+                    console.log('🛑 Stopped during checkbox selection.');
+                    break;
+                }
                 forceClick(checkboxes[i]);
                 await sleep(delayMs);
+                if (stopRequested) break;
             }
 
-            function findClickableButtonByAriaLabel(label) {
-                // Find all role=button elements with the aria-label
-                const candidates = Array.from(document.querySelectorAll(`[role="button"][aria-label="${label}"]`));
+            if (stopRequested) break;
 
+            function findClickableButtonByAriaLabel(label) {
+                const candidates = Array.from(document.querySelectorAll(`[role="button"][aria-label="${label}"]`));
                 for (const el of candidates) {
-                    // Find descendants with pointer-events: auto (actual clickable part)
                     const clickable = el.querySelectorAll('*');
                     for (const child of clickable) {
                         const style = window.getComputedStyle(child);
                         if (style.pointerEvents === 'auto' && (child.offsetWidth > 0 || child.offsetHeight > 0)) {
-                            return child; // Return the first clickable descendant
+                            return child;
                         }
                     }
-                    // If no clickable descendant, maybe the element itself is clickable
                     const elStyle = window.getComputedStyle(el);
                     if (elStyle.pointerEvents === 'auto' && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
                         return el;
@@ -296,9 +346,7 @@
                 return null;
             }
 
-            // Try to find Delete button first, fallback to Unlike button if not found
             let actionButton = findClickableButtonByAriaLabel('Delete');
-
             if (!actionButton) {
                 console.log("Delete button not found, trying Unlike button...");
                 actionButton = findClickableButtonByAriaLabel('Unlike');
@@ -307,11 +355,11 @@
             if (actionButton) {
                 actionButton.click();
                 await sleep(500);
+                if (stopRequested) break;
 
-                // After clicking 'Unlike', wait and try to find the confirmation button
                 await sleep(500);
+                if (stopRequested) break;
 
-                // Find button that is clickable and has text "Unlike" (popup confirmation)
                 const confirmBtn = Array.from(document.querySelectorAll('button'))
                     .find(btn => {
                         const text = btn.innerText?.trim();
@@ -324,40 +372,52 @@
                     console.log(`✅ Clicking confirmation button: ${confirmBtn.innerText.trim()}`);
                     confirmBtn.click();
                     await sleep(2000);
-                    retry = true; // Continue loop for next batch
+                    if (stopRequested) break;
+
+                    retry = true; // continue next batch
                 } else {
                     alert('⚠️ Confirm Unlike or Delete button not found.');
+                    break;
                 }
             }
+
+            // Click OK button if present, with stop checks inside
             await clickOkButtonIfPresent();
 
-            // After clicking Unlike/Delete confirmation:
-            await sleep(1000); // Wait a bit for error popup to appear if any
+            if (stopRequested) break;
 
-            async function clickOkButtonIfPresent(timeout = 10000) {
-                const pollInterval = 300;
-                const maxAttempts = Math.ceil(timeout / pollInterval);
-                let attempts = 0;
+            await sleep(1000);
+            if (stopRequested) break;
+        }
+    };
 
-                while (attempts < maxAttempts) {
-                    // Query the OK button by class and text content
-                    const okButton = Array.from(document.querySelectorAll('button._a9--._ap36._a9_1'))
-                        .find(btn => btn.textContent.trim() === "OK");
+    // Modified clickOkButtonIfPresent with stop check inside loop
+    async function clickOkButtonIfPresent(timeout = 10000) {
+        const pollInterval = 300;
+        const maxAttempts = Math.ceil(timeout / pollInterval);
+        let attempts = 0;
 
-                    if (okButton) {
-                        okButton.click();
-                        console.log("Clicked OK button");
-                        return true;
-                    }
-
-                    await new Promise(r => setTimeout(r, pollInterval));
-                    attempts++;
-                }
-
-                console.warn("OK button not found after waiting.");
+        while (attempts < maxAttempts) {
+            if (stopRequested) {
+                console.log('🛑 Stopped while waiting for OK button.');
                 return false;
             }
+
+            const okButton = Array.from(document.querySelectorAll('button._a9--._ap36._a9_1'))
+                .find(btn => btn.textContent.trim() === "OK");
+
+            if (okButton) {
+                okButton.click();
+                console.log("Clicked OK button");
+                return true;
+            }
+
+            await new Promise(r => setTimeout(r, pollInterval));
+            attempts++;
         }
+
+        console.warn("OK button not found after waiting.");
+        return false;
     };
 
 })();
